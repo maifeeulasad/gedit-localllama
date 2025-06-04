@@ -29,8 +29,11 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
         pass
 
     def on_tab_added(self, window, tab):
-        doc = tab.get_document()
-        self._connect_doc(doc)
+        view = tab.get_view()
+
+        if view and view not in self._handler_ids:
+            handler_id = view.connect("populate-popup", self.on_populate_popup)
+            self._handler_ids[view] = handler_id
 
     def _connect_doc(self, doc):
         file = doc.get_file()
