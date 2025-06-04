@@ -74,16 +74,24 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
 
     def on_populate_popup(self, view, menu):
         models = self._get_ollama_models()
+        menu.append(Gtk.SeparatorMenuItem())
+
+        if not models:
+            warning_item = Gtk.MenuItem(label="🛑 No Ollama models available")
+            warning_item.set_sensitive(False)
+            menu.append(warning_item)
+            menu.show_all()
+            return
+
         default_model = self._get_default_model()
 
-        # Quick actions using default model
+        # Quick actions
         quick_generate = Gtk.MenuItem(label=f"🔮 Generate ({default_model})")
         quick_generate.connect("activate", self._generate_with_model, view, default_model)
 
         quick_summarize = Gtk.MenuItem(label=f"📝 Summarize ({default_model})")
         quick_summarize.connect("activate", self._summarize_with_model, view, default_model)
 
-        menu.append(Gtk.SeparatorMenuItem())
         menu.append(quick_generate)
         menu.append(quick_summarize)
 
