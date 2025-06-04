@@ -1,6 +1,7 @@
-from gi.repository import GObject, Gedit, Gtk, Gio
+from gi.repository import GObject, Gedit, Gtk, Gio, GLib
 import requests
 import json
+from threading import Thread
 
 class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
     __gtype_name__ = "geditlocalllama"
@@ -32,7 +33,6 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
 
     def on_tab_added(self, window, tab):
         view = tab.get_view()
-
         if view and view not in self._handler_ids:
             handler_id = view.connect("populate-popup", self.on_populate_popup)
             self._handler_ids[view] = handler_id
@@ -118,44 +118,12 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
         menu.show_all()
 
     def _generate_with_model(self, widget, view, model):
-        buffer = view.get_buffer()
-        if not buffer.get_has_selection():
-            return
-
-        start, end = buffer.get_selection_bounds()
-        selected_text = buffer.get_text(start, end, True)
-
-        print(f"[Ollama] Generating with {model}")
-        generated = "[Failed to generate]"
-
-        try:
-            response = requests.post(
-                "http://localhost:11434/api/generate",
-                json={
-                    "model": model,
-                    "prompt": f"Write more based on the following:\n\n{selected_text}",
-                    "stream": True
-                },
-                timeout=60,
-                stream=True
-            )
-            response.raise_for_status()
-
-            chunks = []
-            for line in response.iter_lines():
-                if line:
-                    chunk = json.loads(line)
-                    if "response" in chunk:
-                        chunks.append(chunk["response"])
-
-            generated = "".join(chunks)
-
-        except Exception as e:
-            generated = f"[Error generating: {e}]"
-
-        self._show_modal(view, f"Generated Output ({model})", generated)
+        self._stream_with_model(view, model, "Write more based on the following:", "Generated Output ({})".format(model))
 
     def _summarize_with_model(self, widget, view, model):
+        self._stream_with_model(view, model, "Summarize the following:", "Summarized Output ({})".format(model))
+
+    def _stream_with_model(self, view, model, prompt_prefix, title):
         buffer = view.get_buffer()
         if not buffer.get_has_selection():
             return
@@ -163,46 +131,77 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
         start, end = buffer.get_selection_bounds()
         selected_text = buffer.get_text(start, end, True)
 
-        print(f"[Ollama] Summarizing with {model}")
-        summary = "[Failed to summarize]"
-
         try:
             response = requests.post(
                 "http://localhost:11434/api/generate",
                 json={
                     "model": model,
-                    "prompt": f"Summarize the following:\n\n{selected_text}",
+                    "prompt": f"{prompt_prefix}\n\n{selected_text}",
                     "stream": True
                 },
                 timeout=60,
                 stream=True
             )
             response.raise_for_status()
-
-            chunks = []
-            for line in response.iter_lines():
-                if line:
-                    chunk = json.loads(line)
-                    if "response" in chunk:
-                        chunks.append(chunk["response"])
-
-            summary = "".join(chunks)
+            self._stream_to_modal(view, title, response)
 
         except Exception as e:
-            summary = f"[Error summarizing: {e}]"
+            self._show_modal(view, title, f"[Error contacting Ollama: {e}]")
 
-        self._show_modal(view, f"Summarized Output ({model})", summary)
-
-    def _show_modal(self, view, title, text):
-        dialog = Gtk.Dialog(
-            title=title,
-            transient_for=view.get_toplevel(),
-            modal=True
-        )
+    def _stream_to_modal(self, view, title, stream):
+        dialog = Gtk.Dialog(title=title, transient_for=view.get_toplevel(), modal=True)
         dialog.set_default_size(400, 300)
 
         content_area = dialog.get_content_area()
 
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_hexpand(True)
+        scrolled.set_vexpand(True)
+
+        textview = Gtk.TextView()
+        textview.set_editable(False)
+        textview.set_wrap_mode(Gtk.WrapMode.WORD)
+        buffer = textview.get_buffer()
+
+        scrolled.add(textview)
+        content_area.pack_start(scrolled, True, True, 0)
+
+        dialog.add_button("Copy", Gtk.ResponseType.APPLY)
+        dialog.add_button("Close", Gtk.ResponseType.CLOSE)
+
+        def append_text(text):
+            end_iter = buffer.get_end_iter()
+            buffer.insert(end_iter, text)
+            return False
+
+        def read_stream():
+            try:
+                for line in stream.iter_lines():
+                    if line:
+                        chunk = json.loads(line)
+                        if "response" in chunk:
+                            GLib.idle_add(append_text, chunk["response"])
+            except Exception as e:
+                GLib.idle_add(append_text, f"\n[Streaming error: {e}]")
+
+        Thread(target=read_stream, daemon=True).start()
+
+        def on_response(dialog, response_id):
+            if response_id == Gtk.ResponseType.APPLY:
+                start, end = buffer.get_bounds()
+                clipboard = Gtk.Clipboard.get_default(Gtk.Display.get_default())
+                clipboard.set_text(buffer.get_text(start, end, True), -1)
+            dialog.destroy()
+
+        dialog.connect("response", on_response)
+        dialog.show_all()
+
+    def _show_modal(self, view, title, text):
+        dialog = Gtk.Dialog(title=title, transient_for=view.get_toplevel(), modal=True)
+        dialog.set_default_size(400, 300)
+
+        content_area = dialog.get_content_area()
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_hexpand(True)
@@ -221,8 +220,10 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
 
         def on_response(dialog, response_id):
             if response_id == Gtk.ResponseType.APPLY:
+                buffer = textview.get_buffer()
+                start, end = buffer.get_bounds()
                 clipboard = Gtk.Clipboard.get_default(Gtk.Display.get_default())
-                clipboard.set_text(text, -1)
+                clipboard.set_text(buffer.get_text(start, end, True), -1)
             dialog.destroy()
 
         dialog.connect("response", on_response)
