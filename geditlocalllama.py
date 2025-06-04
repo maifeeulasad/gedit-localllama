@@ -143,6 +143,7 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
             )
             response.raise_for_status()
             self._stream_to_modal(view, title, response)
+
         except Exception as e:
             self._show_modal(view, title, f"[Error contacting Ollama: {e}]")
 
@@ -151,6 +152,11 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
         dialog.set_default_size(400, 300)
 
         content_area = dialog.get_content_area()
+
+        spinner = Gtk.Spinner()
+        spinner.start()
+        content_area.pack_start(spinner, False, False, 5)
+
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_hexpand(True)
@@ -184,6 +190,9 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
                             GLib.idle_add(append_text, chunk["response"])
             except Exception as e:
                 GLib.idle_add(append_text, f"\n[Streaming error: {e}]")
+            finally:
+                GLib.idle_add(spinner.stop)
+                GLib.idle_add(spinner.hide)
 
         Thread(target=read_stream, daemon=True).start()
 
