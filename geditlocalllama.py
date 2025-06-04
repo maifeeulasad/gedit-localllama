@@ -51,19 +51,65 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
             handler_id = view.connect("populate-popup", self.on_populate_popup)
             self._handler_ids[view] = handler_id
 
-    def on_populate_popup(self, view, menu):
-        generate_item = Gtk.MenuItem(label="🔮 Generate")
-        summarize_item = Gtk.MenuItem(label="📝 Summarize")
+    def _get_ollama_models(self):
+        try:
+            response = requests.get("http://localhost:11434/api/tags", timeout=5)
+            response.raise_for_status()
+            models = response.json().get("models", [])
+            return [m["name"] for m in models]
+        except Exception as e:
+            print(f"[Ollama] Failed to fetch models: {e}")
+            return []
 
-        generate_item.connect("activate", self.on_generate_clicked, view)
-        summarize_item.connect("activate", self.on_summarize_clicked, view)
+    def _get_default_model(self):
+        try:
+            response = requests.get("http://localhost:11434/api/tags", timeout=5)
+            response.raise_for_status()
+            models = response.json().get("models", [])
+            models.sort(key=lambda m: m.get("size", float("inf")))
+            return models[0]["name"] if models else None
+        except Exception as e:
+            print(f"[Ollama] Error getting default model: {e}")
+            return "deepseek-r1:1.5b"
+
+    def on_populate_popup(self, view, menu):
+        models = self._get_ollama_models()
+        default_model = self._get_default_model()
+
+        # Quick actions using default model
+        quick_generate = Gtk.MenuItem(label=f"🔮 Generate ({default_model})")
+        quick_generate.connect("activate", self._generate_with_model, view, default_model)
+
+        quick_summarize = Gtk.MenuItem(label=f"📝 Summarize ({default_model})")
+        quick_summarize.connect("activate", self._summarize_with_model, view, default_model)
 
         menu.append(Gtk.SeparatorMenuItem())
-        menu.append(generate_item)
-        menu.append(summarize_item)
+        menu.append(quick_generate)
+        menu.append(quick_summarize)
+
+        # Submenus for all models
+        gen_menu = Gtk.Menu()
+        gen_root = Gtk.MenuItem(label="🔮 Generate with...")
+        gen_root.set_submenu(gen_menu)
+
+        sum_menu = Gtk.Menu()
+        sum_root = Gtk.MenuItem(label="📝 Summarize with...")
+        sum_root.set_submenu(sum_menu)
+
+        for model in models:
+            gen_item = Gtk.MenuItem(label=model)
+            gen_item.connect("activate", self._generate_with_model, view, model)
+            gen_menu.append(gen_item)
+
+            sum_item = Gtk.MenuItem(label=model)
+            sum_item.connect("activate", self._summarize_with_model, view, model)
+            sum_menu.append(sum_item)
+
+        menu.append(gen_root)
+        menu.append(sum_root)
         menu.show_all()
 
-    def on_generate_clicked(self, widget, view):
+    def _generate_with_model(self, widget, view, model):
         buffer = view.get_buffer()
         if not buffer.get_has_selection():
             return
@@ -71,14 +117,14 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
         start, end = buffer.get_selection_bounds()
         selected_text = buffer.get_text(start, end, True)
 
-        print(f"🔮 Generating based on: {selected_text}")
+        print(f"[Ollama] Generating with {model}")
         generated = "[Failed to generate]"
 
         try:
             response = requests.post(
-                "http://127.0.0.1:11434/api/generate",
+                "http://localhost:11434/api/generate",
                 json={
-                    "model": "deepseek-r1:1.5b",
+                    "model": model,
                     "prompt": f"Write more based on the following:\n\n{selected_text}",
                     "stream": True
                 },
@@ -87,55 +133,21 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
             )
             response.raise_for_status()
 
-            generated_chunks = []
+            chunks = []
             for line in response.iter_lines():
                 if line:
                     chunk = json.loads(line)
                     if "response" in chunk:
-                        generated_chunks.append(chunk["response"])
+                        chunks.append(chunk["response"])
 
-            generated = "".join(generated_chunks)
+            generated = "".join(chunks)
 
         except Exception as e:
             generated = f"[Error generating: {e}]"
 
-        # Show generated content in a modal dialog
-        dialog = Gtk.Dialog(
-            title="Generated Output",
-            transient_for=view.get_toplevel(),
-            modal=True
-        )
-        dialog.set_default_size(400, 300)
+        self._show_modal(view, f"Generated Output ({model})", generated)
 
-        content_area = dialog.get_content_area()
-
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_hexpand(True)
-        scrolled.set_vexpand(True)
-
-        textview = Gtk.TextView()
-        textview.set_editable(False)
-        textview.set_wrap_mode(Gtk.WrapMode.WORD)
-        textview.get_buffer().set_text(generated)
-
-        scrolled.add(textview)
-        content_area.pack_start(scrolled, True, True, 0)
-
-        dialog.add_button("Copy", Gtk.ResponseType.APPLY)
-        dialog.add_button("Close", Gtk.ResponseType.CLOSE)
-
-        def on_response(dialog, response_id):
-            if response_id == Gtk.ResponseType.APPLY:
-                clipboard = Gtk.Clipboard.get_default(Gtk.Display.get_default())
-                clipboard.set_text(generated, -1)
-            dialog.destroy()
-
-        dialog.connect("response", on_response)
-        dialog.show_all()
-
-
-    def on_summarize_clicked(self, widget, view):
+    def _summarize_with_model(self, widget, view, model):
         buffer = view.get_buffer()
         if not buffer.get_has_selection():
             return
@@ -143,14 +155,14 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
         start, end = buffer.get_selection_bounds()
         selected_text = buffer.get_text(start, end, True)
 
-        print(f"📝 Sending to Ollama: {selected_text}")
-        summary = "[No summary returned]"
+        print(f"[Ollama] Summarizing with {model}")
+        summary = "[Failed to summarize]"
 
         try:
             response = requests.post(
-                "http://127.0.0.1:11434/api/generate",
+                "http://localhost:11434/api/generate",
                 json={
-                    "model": "deepseek-r1:1.5b",
+                    "model": model,
                     "prompt": f"Summarize the following:\n\n{selected_text}",
                     "stream": True
                 },
@@ -159,21 +171,23 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
             )
             response.raise_for_status()
 
-            summary_chunks = []
+            chunks = []
             for line in response.iter_lines():
                 if line:
                     chunk = json.loads(line)
                     if "response" in chunk:
-                        summary_chunks.append(chunk["response"])
+                        chunks.append(chunk["response"])
 
-            summary = "".join(summary_chunks)
+            summary = "".join(chunks)
 
         except Exception as e:
             summary = f"[Error summarizing: {e}]"
 
-        # Create a dialog modal
+        self._show_modal(view, f"Summarized Output ({model})", summary)
+
+    def _show_modal(self, view, title, text):
         dialog = Gtk.Dialog(
-            title="Summarized Output",
+            title=title,
             transient_for=view.get_toplevel(),
             modal=True
         )
@@ -189,7 +203,7 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
         textview = Gtk.TextView()
         textview.set_editable(False)
         textview.set_wrap_mode(Gtk.WrapMode.WORD)
-        textview.get_buffer().set_text(summary)
+        textview.get_buffer().set_text(text)
 
         scrolled.add(textview)
         content_area.pack_start(scrolled, True, True, 0)
@@ -200,7 +214,7 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
         def on_response(dialog, response_id):
             if response_id == Gtk.ResponseType.APPLY:
                 clipboard = Gtk.Clipboard.get_default(Gtk.Display.get_default())
-                clipboard.set_text(summary, -1)
+                clipboard.set_text(text, -1)
             dialog.destroy()
 
         dialog.connect("response", on_response)
