@@ -72,9 +72,47 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
 
     def on_summarize_clicked(self, widget, view):
         buffer = view.get_buffer()
-        if buffer.get_has_selection():
-            start, end = buffer.get_selection_bounds()
-            selected_text = buffer.get_text(start, end, True)
-            print(f"📝 Summarize clicked with: {selected_text}")
-            buffer.delete(start, end)
-            buffer.insert(start, "[Summarized content here]")
+        if not buffer.get_has_selection():
+            return
+
+        start, end = buffer.get_selection_bounds()
+        selected_text = buffer.get_text(start, end, True)
+
+        print(f"📝 Summarize clicked with: {selected_text}")
+        summary_text = "[Summarized content here]"
+
+        # Create a dialog modal
+        dialog = Gtk.Dialog(
+            title="Summarized Output",
+            transient_for=view.get_toplevel(),
+            modal=True
+        )
+        dialog.set_default_size(400, 300)
+
+        content_area = dialog.get_content_area()
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_hexpand(True)
+        scrolled.set_vexpand(True)
+
+        textview = Gtk.TextView()
+        textview.set_editable(False)
+        textview.set_wrap_mode(Gtk.WrapMode.WORD)
+        textview.get_buffer().set_text(summary_text)
+
+        scrolled.add(textview)
+        content_area.pack_start(scrolled, True, True, 0)
+
+
+        dialog.add_button("Copy", Gtk.ResponseType.APPLY)
+        dialog.add_button("Close", Gtk.ResponseType.CLOSE)
+
+        def on_response(dialog, response_id):
+            if response_id == Gtk.ResponseType.APPLY:
+                clipboard = Gtk.Clipboard.get_default(Gtk.Display.get_default())
+                clipboard.set_text(summary_text, -1)
+            dialog.destroy()
+
+        dialog.connect("response", on_response)
+        dialog.show()
