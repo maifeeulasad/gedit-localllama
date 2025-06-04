@@ -65,12 +65,75 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
 
     def on_generate_clicked(self, widget, view):
         buffer = view.get_buffer()
-        if buffer.get_has_selection():
-            start, end = buffer.get_selection_bounds()
-            selected_text = buffer.get_text(start, end, True)
-            print(f"🔮 Generate clicked with: {selected_text}")
-            buffer.delete(start, end)
-            buffer.insert(start, "[Generated text goes here]")
+        if not buffer.get_has_selection():
+            return
+
+        start, end = buffer.get_selection_bounds()
+        selected_text = buffer.get_text(start, end, True)
+
+        print(f"🔮 Generating based on: {selected_text}")
+        generated = "[Failed to generate]"
+
+        try:
+            response = requests.post(
+                "http://127.0.0.1:11434/api/generate",
+                json={
+                    "model": "deepseek-r1:1.5b",
+                    "prompt": f"Write more based on the following:\n\n{selected_text}",
+                    "stream": True
+                },
+                timeout=60,
+                stream=True
+            )
+            response.raise_for_status()
+
+            generated_chunks = []
+            for line in response.iter_lines():
+                if line:
+                    chunk = json.loads(line)
+                    if "response" in chunk:
+                        generated_chunks.append(chunk["response"])
+
+            generated = "".join(generated_chunks)
+
+        except Exception as e:
+            generated = f"[Error generating: {e}]"
+
+        # Show generated content in a modal dialog
+        dialog = Gtk.Dialog(
+            title="Generated Output",
+            transient_for=view.get_toplevel(),
+            modal=True
+        )
+        dialog.set_default_size(400, 300)
+
+        content_area = dialog.get_content_area()
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_hexpand(True)
+        scrolled.set_vexpand(True)
+
+        textview = Gtk.TextView()
+        textview.set_editable(False)
+        textview.set_wrap_mode(Gtk.WrapMode.WORD)
+        textview.get_buffer().set_text(generated)
+
+        scrolled.add(textview)
+        content_area.pack_start(scrolled, True, True, 0)
+
+        dialog.add_button("Copy", Gtk.ResponseType.APPLY)
+        dialog.add_button("Close", Gtk.ResponseType.CLOSE)
+
+        def on_response(dialog, response_id):
+            if response_id == Gtk.ResponseType.APPLY:
+                clipboard = Gtk.Clipboard.get_default(Gtk.Display.get_default())
+                clipboard.set_text(generated, -1)
+            dialog.destroy()
+
+        dialog.connect("response", on_response)
+        dialog.show_all()
+
 
     def on_summarize_clicked(self, widget, view):
         buffer = view.get_buffer()
