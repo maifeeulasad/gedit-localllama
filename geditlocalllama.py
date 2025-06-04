@@ -1,4 +1,4 @@
-from gi.repository import GObject, Gedit, Gtk, Gio, GLib
+from gi.repository import GObject, Gedit, Gtk, Gio, GLib, Gdk
 import requests
 import json
 from threading import Thread
@@ -127,7 +127,6 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
         buffer = view.get_buffer()
         if not buffer.get_has_selection():
             return
-
         start, end = buffer.get_selection_bounds()
         selected_text = buffer.get_text(start, end, True)
 
@@ -144,7 +143,6 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
             )
             response.raise_for_status()
             self._stream_to_modal(view, title, response)
-
         except Exception as e:
             self._show_modal(view, title, f"[Error contacting Ollama: {e}]")
 
@@ -153,7 +151,6 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
         dialog.set_default_size(400, 300)
 
         content_area = dialog.get_content_area()
-
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_hexpand(True)
@@ -190,7 +187,7 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
         def on_response(dialog, response_id):
             if response_id == Gtk.ResponseType.APPLY:
                 start, end = buffer.get_bounds()
-                clipboard = Gtk.Clipboard.get_default(Gtk.Display.get_default())
+                clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
                 clipboard.set_text(buffer.get_text(start, end, True), -1)
             dialog.destroy()
 
@@ -222,7 +219,7 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
             if response_id == Gtk.ResponseType.APPLY:
                 buffer = textview.get_buffer()
                 start, end = buffer.get_bounds()
-                clipboard = Gtk.Clipboard.get_default(Gtk.Display.get_default())
+                clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
                 clipboard.set_text(buffer.get_text(start, end, True), -1)
             dialog.destroy()
 
