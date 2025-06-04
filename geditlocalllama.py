@@ -170,6 +170,9 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
         def append_text(text):
             end_iter = buffer.get_end_iter()
             buffer.insert(end_iter, text)
+
+            mark = buffer.create_mark(None, buffer.get_end_iter(), True)
+            textview.scroll_mark_onscreen(mark)
             return False
 
         def read_stream():
