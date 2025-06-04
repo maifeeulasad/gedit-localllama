@@ -12,14 +12,14 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
         self.button = Gtk.Button(label="Click Me")
         self.button.connect("clicked", self.on_button_clicked)
 
-        # Add to Gedit bottom panel
+        # Add to Gedit bottom panel (Gtk.Stack in Gedit 41+)
         panel = self.window.get_bottom_panel()
-        panel.add_item(self.button, "MyPluginButton", "My Plugin", Gtk.Image())
-        panel.show_all()
+        panel.add_titled(self.button, "MyPluginButton", "My Plugin")
+        panel.show()
 
     def do_deactivate(self):
         panel = self.window.get_bottom_panel()
-        panel.remove_item(self.button)
+        panel.remove(self.button)
 
     def do_update_state(self):
         pass
