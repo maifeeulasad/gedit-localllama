@@ -1,4 +1,6 @@
 from gi.repository import GObject, Gedit, Gtk, Gio
+import requests
+import json
 
 class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
     __gtype_name__ = "geditlocalllama"
@@ -78,8 +80,33 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
         start, end = buffer.get_selection_bounds()
         selected_text = buffer.get_text(start, end, True)
 
-        print(f"📝 Summarize clicked with: {selected_text}")
-        summary_text = "[Summarized content here]"
+        print(f"📝 Sending to Ollama: {selected_text}")
+        summary = "[No summary returned]"
+
+        try:
+            response = requests.post(
+                "http://127.0.0.1:11434/api/generate",
+                json={
+                    "model": "deepseek-r1:1.5b",
+                    "prompt": f"Summarize the following:\n\n{selected_text}",
+                    "stream": True
+                },
+                timeout=60,
+                stream=True
+            )
+            response.raise_for_status()
+
+            summary_chunks = []
+            for line in response.iter_lines():
+                if line:
+                    chunk = json.loads(line)
+                    if "response" in chunk:
+                        summary_chunks.append(chunk["response"])
+
+            summary = "".join(summary_chunks)
+
+        except Exception as e:
+            summary = f"[Error summarizing: {e}]"
 
         # Create a dialog modal
         dialog = Gtk.Dialog(
@@ -99,11 +126,10 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
         textview = Gtk.TextView()
         textview.set_editable(False)
         textview.set_wrap_mode(Gtk.WrapMode.WORD)
-        textview.get_buffer().set_text(summary_text)
+        textview.get_buffer().set_text(summary)
 
         scrolled.add(textview)
         content_area.pack_start(scrolled, True, True, 0)
-
 
         dialog.add_button("Copy", Gtk.ResponseType.APPLY)
         dialog.add_button("Close", Gtk.ResponseType.CLOSE)
@@ -111,8 +137,8 @@ class GEditLocalLLaMA(GObject.Object, Gedit.WindowActivatable):
         def on_response(dialog, response_id):
             if response_id == Gtk.ResponseType.APPLY:
                 clipboard = Gtk.Clipboard.get_default(Gtk.Display.get_default())
-                clipboard.set_text(summary_text, -1)
+                clipboard.set_text(summary, -1)
             dialog.destroy()
 
         dialog.connect("response", on_response)
-        dialog.show()
+        dialog.show_all()
