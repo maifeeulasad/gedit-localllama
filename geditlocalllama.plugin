@@ -1,0 +1,9 @@
+[Plugin]
+Name=GEdit Local Llama Plugin
+Description=Integrates Local Llama with GEdit for enhanced text editing capabilities
+Authors=Maifee Ul Asad
+Copyright=2025
+Website=https://github.com/maifeeulasad/gedit-localllama.git
+Version=1.0
+Loader=python3
+Module=geditlocalllama
