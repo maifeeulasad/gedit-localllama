@@ -1,6 +1,6 @@
 # 🦙 Gedit Local LLaMA Plugin
 
-> ✨ AI in your text editor. Streamlined. Local. No cloud fluff. No API keys. Just raw power.
+> ✨ AI in gedit. Streamlined. Local. No cloud fluff. No API keys. Just raw power.
 
 **Gedit Local LLaMA** is a lightweight yet powerful plugin that brings the strength of locally running [Ollama](https://ollama.com) models (like LLaMA, Mistral, DeepSeek, etc.) right into your Gedit context menu.
 
@@ -100,6 +100,14 @@ The plugin will automatically detect available models at `http://localhost:11434
 
 * You can extend this plugin to support chat history, embedding visual selectors, or even auto-generation via keystrokes.
 * Gedit plugins are Python-based and hot-reload friendly.
+
+## 📷 Snap
+![addplugin](https://github.com/maifeeulasad/gedit-localllama/blob/main/snap/plugin.png)
+
+![contextwindow](https://github.com/maifeeulasad/gedit-localllama/blob/main/snap/context-menu.png)
+
+![generationmodal](https://github.com/maifeeulasad/gedit-localllama/blob/main/snap/modal-streaming.png)
+
 
 ---
 
